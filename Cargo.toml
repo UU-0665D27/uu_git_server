@@ -1,0 +1,39 @@
+[package]
+name = "uu_git_server"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+anyhow = "1.0.104"
+argon2 = "0.5.3"
+askama = { version = "0.16.0", features = ["full"] }
+async-trait = "0.1.92"
+axum = { version = "0.8.9", features = ["macros", "multipart"] }
+base64 = "0.23.1"
+bytes = "1.12.1"
+gix = "0.81.0"
+gix-object = "0.58.0"
+gix-packetline = "0.21.5"
+gix-protocol = { version = "0.59.0", features = ["handshake"] }
+gix-ref = "0.61.0"
+landlock = "0.4.7"
+libc = "0.2.189"
+rand = { version = "0.8", features = ["getrandom"] }
+rand_core = "0.10.1"
+regex = "1.13.1"
+rmp-serde = "1.3.1"
+russh = { version = "0.62.7", features = ["async-trait", "flate2", "ring", "rsa", "serde"], default-features = false }
+russh-keys = "0.49.2"
+seccomp = "0.1.2"
+seccomp-sys = "0.1.3"
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.151"
+sqlx = { version = "0.8", features = ["runtime-tokio", "sqlite"] }
+tempfile = "3.27.0"
+tokio = { version = "1.53.1", features = ["full"] }
+toml = "1.1.4"
+tower = { version = "0.5.3", features = ["tokio"] }
+tower-http = { version = "0.7.0", features = ["fs", "limit", "trace", "util"] }
+tower-sessions = "0.14.0"
+tracing = "0.1.44"
+tracing-subscriber = { version = "0.3.23", features = ["env-filter", "json"] }

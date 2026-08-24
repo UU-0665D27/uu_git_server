@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <title>uu-git-server</title>
+  <style>
+    body { font-family: system-ui, sans-serif; max-width: 720px; margin: 40px auto; padding: 0 16px; }
+    nav { display: flex; justify-content: space-between; align-items: center; margin-bottom: 24px; border-bottom: 1px solid #ddd; padding-bottom: 8px; }
+    h2 { margin-top: 32px; }
+    .repo-list { list-style: none; padding: 0; }
+    .repo-list li { padding: 10px 0; border-bottom: 1px solid #eee; }
+    .repo-path { font-family: monospace; font-weight: 600; margin-bottom: 4px; }
+    .badge { font-size: 0.75em; color: #666; font-weight: normal; margin-left: 6px; }
+    .clone-row { display: flex; gap: 6px; margin: 3px 0; }
+    .clone-row input { flex: 1; font-family: monospace; font-size: 0.85em; padding: 4px 6px; }
+    .clone-row button { padding: 4px 10px; white-space: nowrap; }
+    .error { color: #b00020; }
+    input, button { padding: 8px; margin: 4px 0; }
+    form.login { display: flex; flex-direction: column; max-width: 280px; }
+  </style>
+</head>
+<body>
+{% block content %}{% endblock %}
+<script>
+function copyClone(btn) {
+  var input = btn.previousElementSibling;
+  input.select();
+  input.setSelectionRange(0, 99999);
+  document.execCommand('copy');
+  var old = btn.textContent;
+  btn.textContent = 'Скопировано!';
+  setTimeout(function () { btn.textContent = old; }, 1200);
+}
+</script>
+</body>
+</html>
