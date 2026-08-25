@@ -3,7 +3,7 @@ use crate::{
     config::Config,
     get_repos_base,
     git::{ensure_bare_repo::ensure_bare_repo, pkt_line_err},
-    web::gitseccomp::resolve_syscall,
+    sec::seccomp::setup_seccomp,
 };
 use bytes::Bytes;
 use russh::{
@@ -248,7 +248,7 @@ impl server::Handler for Handler {
                     Ok(_) => {}
                     Err(_) => libc::exit(3),
                 };
-                setup_seccomp();
+                setup_seccomp(SYSCALLS);
                 Ok(())
             });
         }
@@ -436,72 +436,61 @@ fn setup_landlock(repo_path: &PathBuf) -> Result<(), landlock::RulesetError> {
     let _status = created.restrict_self()?;
     Ok(())
 }
-pub fn setup_seccomp() {
-    use seccomp::{Action, Compare, Context, Op, Rule};
-    let mut ctx = Context::default(Action::Errno(38)).unwrap();
 
-    for syscall in [
-        "execve",
-        "close",
-        "write",
-        "gettid",
-        "getpid",
-        "rt_sigprocmask",
-        "rt_sigaction",
-        "rt_sigreturn",
-        "futex",
-        "recvfrom",
-        "newfstatat",
-        "brk",
-        "mmap",
-        "writev",
-        "exit_group",
-        "openat",
-        "fstat",
-        "read",
-        "access",
-        "arch_prctl",
-        "set_tid_address",
-        "set_robust_list",
-        "rseq",
-        "getrandom",
-        "mprotect",
-        "prlimit64",
-        "getcwd",
-        "geteuid",
-        "chdir",
-        "getdents64",
-        "uname",
-        "pipe2",
-        "alarm",
-        "munmap",
-        "fcntl",
-        "madvise",
-        "clone3",
-        "clone",
-        "mkdir",
-        "exit",
-        "dup2",
-        "wait4",
-        "rmdir",
-        "unlink",
-        "tgkill",
-        "ioctl",
-        "poll",
-        "setitimer",
-        "pread64",
-        "fsync",
-        "link",
-        "rename",
-        "setsid",
-        "restart_syscall",
-        "dup",
-    ] {
-        if let Some(nr) = resolve_syscall(syscall) {
-            let cmp = Compare::arg(0).with(0).using(Op::MaskedEq).build().unwrap();
-            let rule = Rule::new(nr as usize, cmp, Action::Allow);
-            let _ = ctx.add_rule(rule);
-        }
-    }
-    ctx.load().unwrap();
-}
+pub const SYSCALLS: &[&str] = &[
+    "execve",
+    "close",
+    "write",
+    "gettid",
+    "getpid",
+    "rt_sigprocmask",
+    "rt_sigaction",
+    "rt_sigreturn",
+    "futex",
+    "recvfrom",
+    "newfstatat",
+    "brk",
+    "mmap",
+    "writev",
+    "exit_group",
+    "openat",
+    "fstat",
+    "read",
+    "access",
+    "arch_prctl",
+    "set_tid_address",
+    "set_robust_list",
+    "rseq",
+    "getrandom",
+    "mprotect",
+    "prlimit64",
+    "getcwd",
+    "geteuid",
+    "chdir",
+    "getdents64",
+    "uname",
+    "pipe2",
+    "alarm",
+    "munmap",
+    "fcntl",
+    "madvise",
+    "clone3",
+    "clone",
+    "mkdir",
+    "exit",
+    "dup2",
+    "wait4",
+    "rmdir",
+    "unlink",
+    "tgkill",
+    "ioctl",
+    "poll",
+    "setitimer",
+    "pread64",
+    "fsync",
+    "link",
+    "rename",
+    "setsid",
+    "restart_syscall",
+    "dup",
+];

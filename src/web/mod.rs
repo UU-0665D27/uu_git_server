@@ -6,7 +6,7 @@ use crate::{
     get_repos_base, get_users_dir,
     git::ensure_bare_repo::ensure_bare_repo,
     log_headers,
-    web::gitseccomp::setup_seccomp,
+    sec::seccomp::setup_seccomp,
 };
 use axum::{
     body::Bytes,
@@ -275,7 +275,7 @@ unsafe fn run_git_in_child(
                 Ok(_) => {}
                 Err(_) => unsafe { exit(3) },
             };
-            setup_seccomp();
+            setup_seccomp(gitseccomp::SYSCALLS);
 
             let git_path = CString::new("/usr/bin/git").unwrap();
             let service_c = CString::new(service).unwrap();

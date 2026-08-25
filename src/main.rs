@@ -9,6 +9,7 @@ use tracing_subscriber::EnvFilter;
 mod auth;
 mod config;
 mod git;
+mod sec;
 mod ssh;
 mod web;
 
