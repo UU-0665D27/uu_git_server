@@ -28,6 +28,7 @@ const SYSCALLS: &[&str] = &[
     "write",
     "chdir",
     "pipe2",
+    "lseek",
     "futex",
     "gettid",
     "getpid",
