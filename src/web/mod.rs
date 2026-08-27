@@ -134,10 +134,10 @@ pub async fn handler(
     }
 
     // 1. Handshake (GET /info/refs)
-    if req_type == "handshake" {
-        if let Some(response) = handshake(params, &path) {
-            return response;
-        }
+    if req_type == "handshake"
+        && let Some(response) = handshake(params, &path)
+    {
+        return response;
     }
 
     // 2. POST receive-pack / upload-pack
@@ -344,13 +344,10 @@ unsafe fn run_git_in_child(
     let exited_ok = libc::WIFEXITED(status) && libc::WEXITSTATUS(status) == 0;
     if !exited_ok {
         let stderr_str = String::from_utf8_lossy(&stderr_data);
-        return Err(io::Error::new(
-            io::ErrorKind::Other,
-            format!(
-                "git {} failed with status {}: {}",
-                service, status, stderr_str
-            ),
-        ));
+        return Err(io::Error::other(format!(
+            "git {} failed with status {}: {}",
+            service, status, stderr_str
+        )));
     }
 
     Ok((stdout_data, stderr_data))

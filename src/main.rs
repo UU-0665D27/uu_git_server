@@ -81,10 +81,10 @@ async fn run_http_server(config: crate::config::Config) -> anyhow::Result<()> {
     let listener = TcpListener::bind(&addr).await?;
 
     info!(
-        "🌐 Git server listening on {} (repos: {}, users: {})",
-        addr,
-        config.repos_base.display(),
-        config.users_dir.display()
+        repos_base = %config.repos_base.display(),
+        addr = addr,
+        users_dir = %config.users_dir.display(),
+        "🌐 Git server listening",
     );
 
     axum::serve(

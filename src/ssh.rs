@@ -49,10 +49,9 @@ fn parse_git_command(cmd: &str) -> Option<(&'static str, String)> {
     let cmd = cmd.trim();
     let (service, rest) = if let Some(r) = cmd.strip_prefix("git-upload-pack") {
         ("upload-pack", r)
-    } else if let Some(r) = cmd.strip_prefix("git-receive-pack") {
-        ("receive-pack", r)
     } else {
-        return None;
+        let r = cmd.strip_prefix("git-receive-pack")?;
+        ("receive-pack", r)
     };
 
     let path = rest
@@ -339,11 +338,11 @@ impl server::Handler for Handler {
     ) -> Result<(), Self::Error> {
         if let Some(slot) = &self.git_stdin {
             let mut g = slot.lock().await;
-            if let Some(stdin) = g.as_mut() {
-                if let Err(e) = stdin.write_all(data).await {
-                    warn!("git stdin write: {e}");
-                    *g = None;
-                }
+            if let Some(stdin) = g.as_mut()
+                && let Err(e) = stdin.write_all(data).await
+            {
+                warn!("git stdin write: {e}");
+                *g = None;
             }
         }
         Ok(())

@@ -6,7 +6,7 @@ use tracing::info;
 pub struct Config {
     #[serde(default = "default_repos_base")]
     pub(crate) repos_base: PathBuf,
-    #[serde(default = "default_users_dir")] // <-- Новое поле
+    #[serde(default = "default_users_dir")]
     pub(crate) users_dir: PathBuf,
     #[serde(default = "default_host")]
     pub(crate) host: String,
