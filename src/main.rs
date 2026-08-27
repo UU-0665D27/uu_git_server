@@ -1,6 +1,6 @@
 use crate::config::load_or_create_config;
 use crate::web::handler;
-use axum::{Router, extract::DefaultBodyLimit, http::HeaderMap, routing::any};
+use axum::{Router, extract::DefaultBodyLimit, http::HeaderMap, routing::any, serve};
 use std::{net::SocketAddr, path::PathBuf, sync::OnceLock};
 use tokio::net::TcpListener;
 use tracing::{debug, error, info};
@@ -87,7 +87,7 @@ async fn run_http_server(config: crate::config::Config) -> anyhow::Result<()> {
         "🌐 Git server listening",
     );
 
-    axum::serve(
+    serve(
         listener,
         app.into_make_service_with_connect_info::<SocketAddr>(),
     )

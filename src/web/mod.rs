@@ -289,7 +289,7 @@ unsafe fn run_git_in_child(
                 std::ptr::null(),
             ];
 
-            unsafe { execvp(git_path.as_ptr(), argv.as_ptr() as *const *const _) };
+            unsafe { execvp(git_path.as_ptr(), argv.as_ptr()) };
             unsafe { _exit(1) };
         }
         pid => pid,
