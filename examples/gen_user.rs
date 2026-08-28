@@ -1,9 +1,6 @@
-use argon2::password_hash::SaltString;
-use argon2::{Argon2, PasswordHasher};
+use argon2::{Argon2, PasswordHasher, password_hash::SaltString};
 use rand::{Rng, distributions::Alphanumeric, thread_rng}; // <-- Добавлен Rng и Alphanumeric
-use std::env;
-use std::fs;
-use std::path::Path;
+use std::{env, fs, path::Path};
 
 fn main() {
     let args: Vec<String> = env::args().collect();
