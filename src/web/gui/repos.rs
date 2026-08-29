@@ -1,7 +1,7 @@
 use std::path::{Path, PathBuf};
 
-/// Возвращает список (owner, repo) для всех bare-репозиториев в repos_base.
-/// Ожидается структура repos_base/<owner>/<repo> (bare git dir).
+/// Возвращает список (owner, repo) для всех bare-репозиториев в `repos_base`.
+/// Ожидается структура `repos_base/<owner>/<repo>` (bare git dir).
 pub fn scan_repos(base: &Path) -> Vec<(String, String)> {
     let mut out = Vec::new();
 

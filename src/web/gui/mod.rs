@@ -2,9 +2,14 @@ pub mod repos;
 pub mod session_store;
 pub mod templates;
 
-use crate::web::gui::session_store::SqliteSessionStore;
-use crate::web::gui::templates::{RenderOr500, RepoEntry};
-use crate::{auth::User, config::Config};
+use crate::{
+    auth::User,
+    config::Config,
+    web::gui::{
+        session_store::SqliteSessionStore,
+        templates::{RenderOr500, RepoEntry},
+    },
+};
 use axum::{
     Form, Router,
     extract::{FromRequestParts, OptionalFromRequestParts, State},
@@ -61,7 +66,7 @@ where
             .map_err(|_| Redirect::to("/login"))?;
 
         match session.get::<String>(SESSION_USER_KEY).await {
-            Ok(Some(user)) => Ok(AuthUser(user)),
+            Ok(Some(user)) => Ok(Self(user)),
             _ => Err(Redirect::to("/login")),
         }
     }
@@ -84,7 +89,7 @@ where
         };
 
         match session.get::<String>(SESSION_USER_KEY).await {
-            Ok(Some(user)) => Ok(Some(AuthUser(user))),
+            Ok(Some(user)) => Ok(Some(Self(user))),
             _ => Ok(None),
         }
     }
@@ -115,9 +120,8 @@ async fn login_submit(
     session: Session,
     Form(form): Form<LoginForm>,
 ) -> Response {
-    let ok = User::load(&form.username, &config.users_dir)
-        .map(|u| u.verify_password(&form.password))
-        .unwrap_or(false);
+    let user = User::load(&form.username, &config.users_dir);
+    let ok = User::verify_password(user.as_ref(), &form.password);
 
     if !ok {
         return Html(

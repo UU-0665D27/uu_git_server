@@ -1,11 +1,14 @@
-use argon2::{Argon2, PasswordHash, PasswordVerifier};
+use argon2::{
+    Argon2, PasswordHash, PasswordHasher, PasswordVerifier,
+    password_hash::{SaltString, rand_core::OsRng},
+};
 use axum::{
     extract::FromRequestParts,
     http::{StatusCode, header::AUTHORIZATION, request::Parts},
     response::{IntoResponse, Response},
 };
 use serde::{Deserialize, Serialize};
-use std::path::Path;
+use std::{path::Path, sync::LazyLock};
 use tracing::{debug, info, warn};
 
 /// Структура пользователя, хранящаяся в отдельном JSON-файле.
@@ -18,6 +21,15 @@ pub struct User {
     #[serde(default)]
     pub public_keys: Vec<String>,
 }
+/// Валидный argon2-хэш от произвольного пароля, используется только
+/// чтобы выравнять время ответа, когда пользователь не найден.
+static DUMMY_HASH: LazyLock<String> = LazyLock::new(|| {
+    let salt = SaltString::generate(&mut OsRng);
+    Argon2::default()
+        .hash_password(b"dummy-password-for-timing-safety", &salt)
+        .expect("dummy hash generation must not fail")
+        .to_string()
+});
 
 impl User {
     /// Загружает пользователя из файла <username>.json в указанной директории
@@ -34,19 +46,33 @@ impl User {
         }
     }
 
-    /// Проверяет пароль с помощью Argon2
-    pub fn verify_password(&self, password: &str) -> bool {
-        let parsed_hash = match PasswordHash::new(&self.password_hash) {
+    /// Проверяет пароль с помощью Argon2.
+    ///
+    /// Принимает `Option<&Self>`, а не `&self`, чтобы даже при отсутствующем
+    /// пользователе выполнялась полноценная Argon2-верификация против
+    /// фиктивного хэша — это не позволяет злоумышленнику отличить
+    /// "юзера нет" от "пароль неверный" по времени ответа.
+    pub fn verify_password(user: Option<&Self>, password: &str) -> bool {
+        let hash_str = match user {
+            Some(u) => &u.password_hash,
+            None => &DUMMY_HASH,
+        };
+
+        let parsed_hash = match PasswordHash::new(hash_str) {
             Ok(h) => h,
             Err(e) => {
-                warn!("Failed to parse password hash for {}: {}", self.username, e);
+                warn!("Failed to parse password hash: {e}");
                 return false;
             }
         };
 
-        Argon2::default()
+        let result = Argon2::default()
             .verify_password(password.as_bytes(), &parsed_hash)
-            .is_ok()
+            .is_ok();
+
+        // если юзера не было — всегда false, даже если бы фиктивный хэш
+        // случайно совпал с введённым паролем
+        user.is_some() && result
     }
 
     pub(crate) fn verify_public_key(&self, public_key: &russh::keys::PublicKey) -> bool {

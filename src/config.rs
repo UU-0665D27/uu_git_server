@@ -23,13 +23,13 @@ pub struct Config {
     pub sessions_db: PathBuf,
 }
 
-fn default_gui_port() -> u16 {
+const fn default_gui_port() -> u16 {
     8081
 }
 fn default_sessions_db() -> PathBuf {
     PathBuf::from("./sessions.db")
 }
-fn default_ssh_port() -> u16 {
+const fn default_ssh_port() -> u16 {
     2222
 }
 fn default_users_dir() -> PathBuf {
@@ -42,7 +42,7 @@ fn default_repos_base() -> PathBuf {
 fn default_host() -> String {
     "127.0.0.1".to_string()
 }
-fn default_port() -> u16 {
+const fn default_port() -> u16 {
     8080
 }
 fn default_log_level() -> String {

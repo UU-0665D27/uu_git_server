@@ -73,9 +73,7 @@ pub async fn run_ssh_server(config_git: Config) -> anyhow::Result<()> {
         auth_rejection_time: std::time::Duration::from_secs(3),
         auth_rejection_time_initial: Some(std::time::Duration::from_secs(0)),
         keys: vec![key],
-        preferred: Preferred {
-            ..Preferred::default()
-        },
+        preferred: Preferred::default(),
         ..Default::default()
     });
 
@@ -118,7 +116,7 @@ impl server::Server for Server {
         error!("SSH session error: {error:#?}");
     }
 }
-
+#[allow(clippy::unused_async_trait_impl)]
 impl server::Handler for Handler {
     type Error = anyhow::Error;
 
@@ -243,10 +241,9 @@ impl server::Handler for Handler {
 
         unsafe {
             command.pre_exec(move || {
-                match setup_landlock(&repo_path_for_child) {
-                    Ok(_) => {}
-                    Err(_) => libc::exit(3),
-                };
+                if setup_landlock(&repo_path_for_child).is_err() {
+                    libc::exit(3);
+                }
                 setup_seccomp(SYSCALLS);
                 Ok(())
             });
@@ -310,8 +307,6 @@ impl server::Handler for Handler {
 
         // wait → exit-status + eof + close
         {
-            let handle = handle.clone();
-            let stdin_slot = stdin_slot.clone();
             let service = service.to_string();
             tokio::spawn(async move {
                 let status = child.wait().await;

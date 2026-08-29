@@ -11,7 +11,7 @@ use gix_packetline::{
 use std::{collections::HashMap, io::Write, process::Command};
 use tracing::{debug, warn};
 
-pub fn handshake(params: HashMap<String, String>, path: &str) -> Option<Response> {
+pub fn handshake(params: &HashMap<String, String>, path: &str) -> Option<Response> {
     let service_str = params.get("service").map(String::as_str)?;
 
     if service_str != "git-receive-pack" && service_str != "git-upload-pack" {
@@ -107,7 +107,7 @@ pub fn handshake(params: HashMap<String, String>, path: &str) -> Option<Response
     // Формируем ответ
     let mut writer = Writer::new(Vec::new());
 
-    let service_line = format!("# service={}\n", service_str);
+    let service_line = format!("# service={service_str}\n");
     writer.write_all(service_line.as_bytes()).ok()?;
     encode::flush_to_write(writer.inner_mut()).ok()?;
     writer.inner_mut().write_all(&output.stdout).ok()?;

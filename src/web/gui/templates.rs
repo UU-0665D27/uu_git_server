@@ -21,7 +21,7 @@ pub struct DashboardTemplate {
     pub other_repos: Vec<RepoEntry>,
 }
 
-/// Небольшой хелпер, чтобы не тащить askama::Error в хендлеры axum
+/// Небольшой хелпер, чтобы не тащить `askama::Error`  в хендлеры axum
 pub trait RenderOr500: Template {
     fn render_or_500(&self) -> String {
         self.render()
