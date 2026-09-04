@@ -6,6 +6,7 @@ use crate::{
     get_repos_base, get_users_dir,
     git::ensure_bare_repo::ensure_bare_repo,
     log_headers,
+    repo_meta::RepositoryMetadataManager,
     sec::seccomp::setup_seccomp,
 };
 use axum::{
@@ -97,10 +98,36 @@ pub async fn handler(
             .into_response();
     }
     let owner = segments[0];
-    // Можно заодно сохранить имя репозитория: let repo_name = segments[1];
+    let repo_name = segments[1];
 
     // Логируем факт авторизованного обращения с операцией
     info!(%addr, user = %auth.username, %repo, %operation, "Request");
+
+    // Проверка доступа к репозиторию
+    let metadata_mgr = RepositoryMetadataManager::new(get_repos_base());
+    let can_read = match metadata_mgr.can_access(owner, repo_name, Some(&auth.username)) {
+        Ok(access) => access,
+        Err(e) => {
+            warn!("Error checking repo access: {}", e);
+            false
+        }
+    };
+
+    if !can_read {
+        warn!(
+            %addr,
+            user = %auth.username,
+            owner = %owner,
+            repo = %repo_name,
+            "Forbidden: no access to private repository"
+        );
+        return (
+            StatusCode::FORBIDDEN,
+            [(header::CONTENT_TYPE, "text/plain")],
+            "Access denied: this repository is private",
+        )
+            .into_response();
+    }
 
     // Проверка прав на запись
     if operation == "push" && auth.username != owner {

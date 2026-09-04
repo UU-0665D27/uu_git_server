@@ -6068,13 +6068,3 @@ name = "zmij"
 version = "1.0.23"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "29666d0abbfad1e3dc4dcf6144730dd3a3ab225bbbdac83319345b1b44ccfc1b"
-
-[[patch.unused]]
-name = "uu_langpack"
-version = "0.1.0"
-source = "git+http://[228:39cf:5792:fbd1:d5c7:a750:7ab9:4389]:10003/uu/uu_langpack.git#e02e5f098afffb36ace7c976b7aaa259fb4124bf"
-
-[[patch.unused]]
-name = "uu_decompressor_aplib"
-version = "0.1.0"
-source = "git+http://[228:39cf:5792:fbd1:d5c7:a750:7ab9:4389]:10003/uu/uu_decompressor_aplib.git#2adc429645833bccfc59f7df3a5f8b7e9f4115c8"
