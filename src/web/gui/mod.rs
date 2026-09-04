@@ -43,15 +43,15 @@ pub async fn run_gui_server(config: Config) -> anyhow::Result<()> {
         .route("/login", get(login_form).post(login_submit))
         .route("/logout", axum::routing::post(logout))
         .route(
-            "/api/repo/:owner/:repo/visibility",
+            "/api/repo/{owner}/{repo}/visibility",
             post(set_repo_visibility),
         )
         .route(
-            "/api/repo/:owner/:repo/collaborators",
+            "/api/repo/{owner}/{repo}/collaborators",
             post(add_collaborator),
         )
         .route(
-            "/api/repo/:owner/:repo/collaborators/:username",
+            "/api/repo/{owner}/{repo}/collaborators/{username}",
             delete(remove_collaborator),
         )
         .layer(session_layer)
