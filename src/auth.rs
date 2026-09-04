@@ -7,8 +7,10 @@ use axum::{
     http::{StatusCode, header::AUTHORIZATION, request::Parts},
     response::{IntoResponse, Response},
 };
+use base64::{Engine, prelude::BASE64_STANDARD};
 use serde::{Deserialize, Serialize};
-use std::{path::Path, sync::LazyLock};
+use serde_json::from_str;
+use std::{fs::read_to_string, path::Path, sync::LazyLock};
 use tracing::{debug, info, warn};
 
 /// Структура пользователя, хранящаяся в отдельном JSON-файле.
@@ -39,11 +41,8 @@ impl User {
             return None;
         }
 
-        let path = users_dir.join(format!("{}.json", username));
-        match std::fs::read_to_string(&path) {
-            Ok(content) => serde_json::from_str(&content).ok(),
-            Err(_) => None,
-        }
+        let path = users_dir.join(format!("{username}.json"));
+        read_to_string(&path).map_or(None, |content| from_str(&content).ok())
     }
 
     /// Проверяет пароль с помощью Argon2.
@@ -145,6 +144,7 @@ where
 {
     type Rejection = Response;
 
+    #[allow(clippy::unused_async_trait_impl)]
     async fn from_request_parts(parts: &mut Parts, _state: &S) -> Result<Self, Self::Rejection> {
         let auth_header = parts
             .headers
@@ -160,15 +160,12 @@ where
         }
 
         let base64_credentials = &auth_header[6..];
-        let decoded =
-            match base64::Engine::decode(&base64::prelude::BASE64_STANDARD, base64_credentials) {
-                Ok(d) => d,
-                Err(_) => return Err(unauthorized_response()),
-            };
+        let Ok(decoded) = Engine::decode(&BASE64_STANDARD, base64_credentials) else {
+            return Err(unauthorized_response());
+        };
 
-        let credentials = match String::from_utf8(decoded) {
-            Ok(c) => c,
-            Err(_) => return Err(unauthorized_response()),
+        let Ok(credentials) = String::from_utf8(decoded) else {
+            return Err(unauthorized_response());
         };
 
         let mut parts = credentials.splitn(2, ':');
@@ -179,7 +176,7 @@ where
             return Err(unauthorized_response());
         }
 
-        Ok(BasicAuth { username, password })
+        Ok(Self { username, password })
     }
 }
 
@@ -195,7 +192,7 @@ pub fn unauthorized_response() -> Response {
     )
         .into_response()
 }
-/// Нормализует строку ключа: возвращает кортеж (тип_ключа, base64_данные)
+/// Нормализует строку ключа: возвращает кортеж (`тип_ключа`, `base64_данные`)
 fn normalize_public_key(s: &str) -> Option<(&str, &str)> {
     let mut parts = s.split_whitespace();
     let key_type = parts.next()?;

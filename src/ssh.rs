@@ -314,7 +314,11 @@ impl server::Handler for Handler {
                     Ok(s) => debug!("git {service} exited: {s}"),
                     Err(e) => warn!("git wait: {e}"),
                 }
-                let code = status.ok().and_then(|s| s.code()).unwrap_or(1) as u32;
+                let code = status
+                    .ok()
+                    .and_then(|s| s.code())
+                    .unwrap_or(1)
+                    .cast_unsigned();
                 let _ = handle.exit_status_request(ch, code).await;
                 let _ = handle.eof(ch).await;
                 let _ = handle.close(ch).await;
@@ -385,7 +389,7 @@ fn setup_landlock(repo_path: &PathBuf) -> Result<(), landlock::RulesetError> {
     created = created.add_rule(PathBeneath::new(fd, access_all))?;
 
     // Только чтение
-    let access_r: BitFlags<AccessFs> = AccessFs::ReadFile.into();
+    let access_read: BitFlags<AccessFs> = AccessFs::ReadFile.into();
     for path in &[
         "/dev/null",
         "/proc/self/exe",
@@ -395,7 +399,7 @@ fn setup_landlock(repo_path: &PathBuf) -> Result<(), landlock::RulesetError> {
         "/proc/sys/vm/overcommit_memory",
     ] {
         if let Ok(fd) = PathFd::new(path) {
-            created = created.add_rule(PathBeneath::new(fd, access_r))?;
+            created = created.add_rule(PathBeneath::new(fd, access_read))?;
         }
     }
 
@@ -422,9 +426,9 @@ fn setup_landlock(repo_path: &PathBuf) -> Result<(), landlock::RulesetError> {
         }
     }
     // Чтение и запись для /dev/null
-    let access_rw = AccessFs::ReadFile | AccessFs::WriteFile;
+    let access_read_write = AccessFs::ReadFile | AccessFs::WriteFile;
     if let Ok(fd) = PathFd::new("/dev/null") {
-        created = created.add_rule(PathBeneath::new(fd, access_rw))?;
+        created = created.add_rule(PathBeneath::new(fd, access_read_write))?;
     }
 
     let _status = created.restrict_self()?;

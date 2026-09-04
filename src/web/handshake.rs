@@ -72,9 +72,8 @@ pub fn handshake(params: &HashMap<String, String>, path: &str) -> Option<Respons
                 if let Some(data) = line.as_slice() {
                     if first_line {
                         // Первая линия: "oid ref\x00caps"
-                        if let Some((ref_part, caps)) = parse_first_line(data) {
-                            debug!("Head: {} | Caps: {}", ref_part, caps);
-                        }
+                        let (ref_part, caps) = parse_first_line(data);
+                        debug!("Head: {} | Caps: {}", ref_part, caps);
                         first_line = false;
                     } else {
                         // Остальные: просто "oid ref"
@@ -118,7 +117,7 @@ pub fn handshake(params: &HashMap<String, String>, path: &str) -> Option<Respons
         [
             (
                 header::CONTENT_TYPE,
-                format!("application/x-{}-advertisement", service_str),
+                format!("application/x-{service_str}-advertisement"),
             ),
             (
                 header::CACHE_CONTROL,
@@ -133,7 +132,7 @@ pub fn handshake(params: &HashMap<String, String>, path: &str) -> Option<Respons
 }
 
 /// Парсит первую линию: "178796ff... refs/heads/main\x00report-status..."
-fn parse_first_line(data: &[u8]) -> Option<(String, String)> {
+fn parse_first_line(data: &[u8]) -> (String, String) {
     let text = String::from_utf8_lossy(data);
 
     // Разделяем по NUL (\x00)
@@ -142,9 +141,9 @@ fn parse_first_line(data: &[u8]) -> Option<(String, String)> {
     if parts.len() >= 2 {
         let ref_part = parts[0].trim_end();
         let caps = parts[1].trim_end_matches('\n');
-        Some((ref_part.to_string(), caps.to_string()))
+        (ref_part.to_string(), caps.to_string())
     } else {
         // Нет capabilities (старый git?)
-        Some((text.trim_end().to_string(), String::new()))
+        (text.trim_end().to_string(), String::new())
     }
 }

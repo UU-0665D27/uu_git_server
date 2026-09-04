@@ -10,17 +10,17 @@ pub enum Visibility {
 }
 
 impl Visibility {
-    pub fn as_str(&self) -> &'static str {
+    pub const fn as_str(self) -> &'static str {
         match self {
-            Visibility::Public => "public",
-            Visibility::Private => "private",
+            Self::Public => "public",
+            Self::Private => "private",
         }
     }
 
     pub fn from_str(s: &str) -> Option<Self> {
         match s {
-            "public" => Some(Visibility::Public),
-            "private" => Some(Visibility::Private),
+            "public" => Some(Self::Public),
+            "private" => Some(Self::Private),
             _ => None,
         }
     }
@@ -49,8 +49,8 @@ pub struct RepositoryMetadataManager {
 }
 
 impl RepositoryMetadataManager {
-    pub fn new(repos_base: PathBuf) -> Self {
-        RepositoryMetadataManager { repos_base }
+    pub const fn new(repos_base: PathBuf) -> Self {
+        Self { repos_base }
     }
 
     /// Путь к файлу конфигурации репозитория
@@ -121,20 +121,30 @@ impl RepositoryMetadataManager {
     }
 
     /// Добавить коллаборатора
-    pub fn add_collaborator(&self, owner: &str, repo: &str, collaborator: &str) -> anyhow::Result<()> {
+    pub fn add_collaborator(
+        &self,
+        owner: &str,
+        repo: &str,
+        collaborator: &str,
+    ) -> anyhow::Result<()> {
         let config_path = self.config_path(owner, repo);
         let mut metadata = Self::load_metadata(&config_path)?;
-        
+
         if !metadata.collaborators.contains(&collaborator.to_string()) {
             metadata.collaborators.push(collaborator.to_string());
         }
-        
+
         Self::save_metadata(&config_path, &metadata)?;
         Ok(())
     }
 
     /// Удалить коллаборатора
-    pub fn remove_collaborator(&self, owner: &str, repo: &str, collaborator: &str) -> anyhow::Result<()> {
+    pub fn remove_collaborator(
+        &self,
+        owner: &str,
+        repo: &str,
+        collaborator: &str,
+    ) -> anyhow::Result<()> {
         let config_path = self.config_path(owner, repo);
         let mut metadata = Self::load_metadata(&config_path)?;
         metadata.collaborators.retain(|c| c != collaborator);

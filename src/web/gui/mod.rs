@@ -79,7 +79,7 @@ where
             .map_err(|_| Redirect::to("/login"))?;
 
         match session.get::<String>(SESSION_USER_KEY).await {
-            Ok(Some(user)) => Ok(AuthUser(user)),
+            Ok(Some(user)) => Ok(Self(user)),
             _ => Err(Redirect::to("/login")),
         }
     }
@@ -102,7 +102,7 @@ where
         };
 
         match session.get::<String>(SESSION_USER_KEY).await {
-            Ok(Some(user)) => Ok(Some(AuthUser(user))),
+            Ok(Some(user)) => Ok(Some(Self(user))),
             _ => Ok(None),
         }
     }
@@ -134,8 +134,7 @@ async fn login_submit(
     Form(form): Form<LoginForm>,
 ) -> Response {
     let ok = User::load(&form.username, &config.users_dir)
-        .map(|u| User::verify_password(Some(&u), &form.password))
-        .unwrap_or(false);
+        .is_some_and(|u| User::verify_password(Some(&u), &form.password));
 
     if !ok {
         return Html(
@@ -257,24 +256,21 @@ async fn set_repo_visibility(
     }
 
     // Парсим видимость
-    let visibility = match Visibility::from_str(&payload.visibility) {
-        Some(v) => v,
-        None => {
-            return (
-                StatusCode::BAD_REQUEST,
-                Json(ApiResponse {
-                    success: false,
-                    message: "Invalid visibility value. Use 'public' or 'private'".to_string(),
-                }),
-            )
-                .into_response();
-        }
+    let Some(visibility) = Visibility::from_str(&payload.visibility) else {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(ApiResponse {
+                success: false,
+                message: "Invalid visibility value. Use 'public' or 'private'".to_string(),
+            }),
+        )
+            .into_response();
     };
 
-    let metadata_mgr = RepositoryMetadataManager::new(config.repos_base.clone());
+    let metadata_mgr = RepositoryMetadataManager::new(config.repos_base);
 
     match metadata_mgr.set_visibility(&owner, &repo, visibility) {
-        Ok(_) => (
+        Ok(()) => (
             StatusCode::OK,
             Json(ApiResponse {
                 success: true,
@@ -286,7 +282,7 @@ async fn set_repo_visibility(
             StatusCode::INTERNAL_SERVER_ERROR,
             Json(ApiResponse {
                 success: false,
-                message: format!("Failed to update visibility: {}", e),
+                message: format!("Failed to update visibility: {e}"),
             }),
         )
             .into_response(),
@@ -312,10 +308,10 @@ async fn add_collaborator(
             .into_response();
     }
 
-    let metadata_mgr = RepositoryMetadataManager::new(config.repos_base.clone());
+    let metadata_mgr = RepositoryMetadataManager::new(config.repos_base);
 
     match metadata_mgr.add_collaborator(&owner, &repo, &payload.username) {
-        Ok(_) => (
+        Ok(()) => (
             StatusCode::OK,
             Json(ApiResponse {
                 success: true,
@@ -327,7 +323,7 @@ async fn add_collaborator(
             StatusCode::INTERNAL_SERVER_ERROR,
             Json(ApiResponse {
                 success: false,
-                message: format!("Failed to add collaborator: {}", e),
+                message: format!("Failed to add collaborator: {e}"),
             }),
         )
             .into_response(),
@@ -352,14 +348,14 @@ async fn remove_collaborator(
             .into_response();
     }
 
-    let metadata_mgr = RepositoryMetadataManager::new(config.repos_base.clone());
+    let metadata_mgr = RepositoryMetadataManager::new(config.repos_base);
 
     match metadata_mgr.remove_collaborator(&owner, &repo, &collaborator) {
-        Ok(_) => (
+        Ok(()) => (
             StatusCode::OK,
             Json(ApiResponse {
                 success: true,
-                message: format!("User '{}' removed from collaborators", collaborator),
+                message: format!("User '{collaborator}' removed from collaborators"),
             }),
         )
             .into_response(),
@@ -367,7 +363,7 @@ async fn remove_collaborator(
             StatusCode::INTERNAL_SERVER_ERROR,
             Json(ApiResponse {
                 success: false,
-                message: format!("Failed to remove collaborator: {}", e),
+                message: format!("Failed to remove collaborator: {e}"),
             }),
         )
             .into_response(),

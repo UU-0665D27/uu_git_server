@@ -1,6 +1,6 @@
-pub(crate) mod gitseccomp;
-pub(crate) mod gui;
-pub(crate) mod handshake;
+pub mod gitseccomp;
+pub mod gui;
+pub mod handshake;
 use crate::{
     auth::{BasicAuth, User, unauthorized_response},
     get_repos_base, get_users_dir,
@@ -211,7 +211,7 @@ pub async fn handler(
                 return (
                     StatusCode::INTERNAL_SERVER_ERROR,
                     [(header::CONTENT_TYPE, "text/plain")],
-                    format!("Internal server error: {}", e),
+                    format!("Internal server error: {e}"),
                 )
                     .into_response();
             }
@@ -294,10 +294,9 @@ unsafe fn run_git_in_child(
             }
 
             // --- Место для seccomp / landlock ---
-            match setup_landlock(repo_path) {
-                Ok(_) => {}
-                Err(_) => unsafe { exit(3) },
-            };
+            if setup_landlock(repo_path).is_err() {
+                unsafe { exit(3) };
+            }
             setup_seccomp(gitseccomp::SYSCALLS);
 
             let git_path = CString::new("/usr/bin/git").unwrap();
@@ -359,7 +358,7 @@ unsafe fn run_git_in_child(
 
     // Ожидание завершения потомка
     let mut status: c_int = 0;
-    if unsafe { libc::waitpid(pid, &mut status, 0) } == -1 {
+    if unsafe { libc::waitpid(pid, &raw mut status, 0) } == -1 {
         return Err(io::Error::last_os_error());
     }
 
@@ -368,8 +367,7 @@ unsafe fn run_git_in_child(
     if !exited_ok {
         let stderr_str = String::from_utf8_lossy(&stderr_data);
         return Err(io::Error::other(format!(
-            "git {} failed with status {}: {}",
-            service, status, stderr_str
+            "git {service} failed with status {status}: {stderr_str}"
         )));
     }
 
@@ -407,7 +405,7 @@ fn setup_landlock(repo_path: &str) -> Result<(), landlock::RulesetError> {
     }
 
     // Чтение и выполнение
-    let access_rx = AccessFs::Execute | AccessFs::ReadFile;
+    let access_read_execute = AccessFs::Execute | AccessFs::ReadFile;
     for path in &[
         "/usr/lib",
         "/usr/bin",
@@ -416,7 +414,7 @@ fn setup_landlock(repo_path: &str) -> Result<(), landlock::RulesetError> {
         "/usr/share/locale",
     ] {
         if let Ok(fd) = PathFd::new(path) {
-            created = created.add_rule(PathBeneath::new(fd, access_rx))?;
+            created = created.add_rule(PathBeneath::new(fd, access_read_execute))?;
         }
     }
     // Доступ к конкретным конфигурационным файлам git (только чтение)
@@ -429,9 +427,9 @@ fn setup_landlock(repo_path: &str) -> Result<(), landlock::RulesetError> {
         }
     }
     // Чтение и запись для /dev/null
-    let access_rw = AccessFs::ReadFile | AccessFs::WriteFile;
+    let access_read_write = AccessFs::ReadFile | AccessFs::WriteFile;
     if let Ok(fd) = PathFd::new("/dev/null") {
-        created = created.add_rule(PathBeneath::new(fd, access_rw))?;
+        created = created.add_rule(PathBeneath::new(fd, access_read_write))?;
     }
 
     let _status = created.restrict_self()?;
