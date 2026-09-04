@@ -1,3 +1,4 @@
+#![deny(clippy::all, clippy::pedantic, clippy::nursery, clippy::perf)]
 use crate::config::load_or_create_config;
 use crate::web::handler;
 use axum::{Router, extract::DefaultBodyLimit, http::HeaderMap, routing::any, serve};
