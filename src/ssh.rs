@@ -80,6 +80,7 @@ pub async fn run_ssh_server(config_git: Config) -> anyhow::Result<()> {
     let mut sh = Server {
         id: 0,
         config: config_git,
+        last_client_addr: None,
     };
     let socket = TcpListener::bind(("::", 2222)).await?;
     info!("SSH Git server listening on {:?}", socket);
@@ -90,6 +91,7 @@ pub async fn run_ssh_server(config_git: Config) -> anyhow::Result<()> {
 struct Server {
     id: usize,
     config: Config,
+    last_client_addr: Option<std::net::SocketAddr>, // новое поле
 }
 
 struct Handler {
@@ -102,8 +104,9 @@ struct Handler {
 impl server::Server for Server {
     type Handler = Handler;
 
-    fn new_client(&mut self, _: Option<std::net::SocketAddr>) -> Self::Handler {
+    fn new_client(&mut self, addr: Option<std::net::SocketAddr>) -> Self::Handler {
         self.id += 1;
+        self.last_client_addr = addr; // сохраняем адрес
         Handler {
             id: self.id,
             user: None,
@@ -113,7 +116,11 @@ impl server::Server for Server {
     }
 
     fn handle_session_error(&mut self, error: <Self::Handler as server::Handler>::Error) {
-        error!("SSH session error: {error:#?}");
+        if let Some(addr) = self.last_client_addr {
+            error!("SSH session error from {addr}: {error:#?}");
+        } else {
+            error!("SSH session error (unknown client): {error:#?}");
+        }
     }
 }
 #[allow(clippy::unused_async_trait_impl)]
