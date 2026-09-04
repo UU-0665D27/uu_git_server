@@ -5,20 +5,21 @@ pub mod templates;
 use crate::{
     auth::User,
     config::Config,
+    repo_meta::{RepositoryMetadataManager, Visibility},
     web::gui::{
         session_store::SqliteSessionStore,
         templates::{RenderOr500, RepoEntry},
     },
 };
 use axum::{
-    Form, Router,
-    extract::{FromRequestParts, OptionalFromRequestParts, State},
-    http::request::Parts,
+    Form, Json, Router,
+    extract::{FromRequestParts, OptionalFromRequestParts, Path as AxumPath, State},
+    http::{StatusCode, request::Parts},
     response::{Html, IntoResponse, Redirect, Response},
-    routing::get,
+    routing::{delete, get, post},
 };
 use repos::scan_repos;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use sqlx::SqlitePool;
 use templates::{DashboardTemplate, LoginTemplate};
 use tower_sessions::{Expiry, Session, SessionManagerLayer, cookie::time::Duration};
@@ -41,6 +42,18 @@ pub async fn run_gui_server(config: Config) -> anyhow::Result<()> {
         .route("/", get(dashboard))
         .route("/login", get(login_form).post(login_submit))
         .route("/logout", axum::routing::post(logout))
+        .route(
+            "/api/repo/:owner/:repo/visibility",
+            post(set_repo_visibility),
+        )
+        .route(
+            "/api/repo/:owner/:repo/collaborators",
+            post(add_collaborator),
+        )
+        .route(
+            "/api/repo/:owner/:repo/collaborators/:username",
+            delete(remove_collaborator),
+        )
         .layer(session_layer)
         .with_state(config.clone());
 
@@ -66,7 +79,7 @@ where
             .map_err(|_| Redirect::to("/login"))?;
 
         match session.get::<String>(SESSION_USER_KEY).await {
-            Ok(Some(user)) => Ok(Self(user)),
+            Ok(Some(user)) => Ok(AuthUser(user)),
             _ => Err(Redirect::to("/login")),
         }
     }
@@ -89,7 +102,7 @@ where
         };
 
         match session.get::<String>(SESSION_USER_KEY).await {
-            Ok(Some(user)) => Ok(Some(Self(user))),
+            Ok(Some(user)) => Ok(Some(AuthUser(user))),
             _ => Ok(None),
         }
     }
@@ -120,8 +133,9 @@ async fn login_submit(
     session: Session,
     Form(form): Form<LoginForm>,
 ) -> Response {
-    let user = User::load(&form.username, &config.users_dir);
-    let ok = User::verify_password(user.as_ref(), &form.password);
+    let ok = User::load(&form.username, &config.users_dir)
+        .map(|u| User::verify_password(Some(&u), &form.password))
+        .unwrap_or(false);
 
     if !ok {
         return Html(
@@ -203,4 +217,159 @@ fn build_repo_entries(
             }
         })
         .collect()
+}
+
+// -------------------- API обработчики --------------------
+
+#[derive(Serialize, Deserialize)]
+struct VisibilityRequest {
+    visibility: String,
+}
+
+#[derive(Serialize, Deserialize)]
+struct CollaboratorRequest {
+    username: String,
+}
+
+#[derive(Serialize)]
+struct ApiResponse {
+    success: bool,
+    message: String,
+}
+
+/// Установить видимость репозитория (только для владельца)
+async fn set_repo_visibility(
+    AuthUser(username): AuthUser,
+    AxumPath((owner, repo)): AxumPath<(String, String)>,
+    State(config): State<Config>,
+    Json(payload): Json<VisibilityRequest>,
+) -> impl IntoResponse {
+    // Проверяем, что пользователь — владелец
+    if username != owner {
+        return (
+            StatusCode::FORBIDDEN,
+            Json(ApiResponse {
+                success: false,
+                message: "You are not the repository owner".to_string(),
+            }),
+        )
+            .into_response();
+    }
+
+    // Парсим видимость
+    let visibility = match Visibility::from_str(&payload.visibility) {
+        Some(v) => v,
+        None => {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(ApiResponse {
+                    success: false,
+                    message: "Invalid visibility value. Use 'public' or 'private'".to_string(),
+                }),
+            )
+                .into_response();
+        }
+    };
+
+    let metadata_mgr = RepositoryMetadataManager::new(config.repos_base.clone());
+
+    match metadata_mgr.set_visibility(&owner, &repo, visibility) {
+        Ok(_) => (
+            StatusCode::OK,
+            Json(ApiResponse {
+                success: true,
+                message: format!("Repository set to {}", visibility.as_str()),
+            }),
+        )
+            .into_response(),
+        Err(e) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ApiResponse {
+                success: false,
+                message: format!("Failed to update visibility: {}", e),
+            }),
+        )
+            .into_response(),
+    }
+}
+
+/// Добавить коллаборатора (только для владельца)
+async fn add_collaborator(
+    AuthUser(username): AuthUser,
+    AxumPath((owner, repo)): AxumPath<(String, String)>,
+    State(config): State<Config>,
+    Json(payload): Json<CollaboratorRequest>,
+) -> impl IntoResponse {
+    // Проверяем, что пользователь — владелец
+    if username != owner {
+        return (
+            StatusCode::FORBIDDEN,
+            Json(ApiResponse {
+                success: false,
+                message: "You are not the repository owner".to_string(),
+            }),
+        )
+            .into_response();
+    }
+
+    let metadata_mgr = RepositoryMetadataManager::new(config.repos_base.clone());
+
+    match metadata_mgr.add_collaborator(&owner, &repo, &payload.username) {
+        Ok(_) => (
+            StatusCode::OK,
+            Json(ApiResponse {
+                success: true,
+                message: format!("User '{}' added as collaborator", payload.username),
+            }),
+        )
+            .into_response(),
+        Err(e) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ApiResponse {
+                success: false,
+                message: format!("Failed to add collaborator: {}", e),
+            }),
+        )
+            .into_response(),
+    }
+}
+
+/// Удалить коллаборатора (только для владельца)
+async fn remove_collaborator(
+    AuthUser(username): AuthUser,
+    AxumPath((owner, repo, collaborator)): AxumPath<(String, String, String)>,
+    State(config): State<Config>,
+) -> impl IntoResponse {
+    // Проверяем, что пользователь — владелец
+    if username != owner {
+        return (
+            StatusCode::FORBIDDEN,
+            Json(ApiResponse {
+                success: false,
+                message: "You are not the repository owner".to_string(),
+            }),
+        )
+            .into_response();
+    }
+
+    let metadata_mgr = RepositoryMetadataManager::new(config.repos_base.clone());
+
+    match metadata_mgr.remove_collaborator(&owner, &repo, &collaborator) {
+        Ok(_) => (
+            StatusCode::OK,
+            Json(ApiResponse {
+                success: true,
+                message: format!("User '{}' removed from collaborators", collaborator),
+            }),
+        )
+            .into_response(),
+        Err(e) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ApiResponse {
+                success: false,
+                message: format!("Failed to remove collaborator: {}", e),
+            }),
+        )
+            .into_response(),
+    }
 }

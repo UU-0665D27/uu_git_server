@@ -1,5 +1,5 @@
-#![deny(clippy::all, clippy::pedantic, clippy::nursery, clippy::perf)]
-use crate::{config::load_or_create_config, web::handler};
+use crate::config::load_or_create_config;
+use crate::web::handler;
 use axum::{Router, extract::DefaultBodyLimit, http::HeaderMap, routing::any, serve};
 use std::{net::SocketAddr, path::PathBuf, sync::OnceLock};
 use tokio::net::TcpListener;
@@ -9,6 +9,7 @@ use tracing_subscriber::EnvFilter;
 mod auth;
 mod config;
 mod git;
+mod repo_meta;
 mod sec;
 mod ssh;
 mod web;

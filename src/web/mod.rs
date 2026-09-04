@@ -6,6 +6,7 @@ use crate::{
     get_repos_base, get_users_dir,
     git::ensure_bare_repo::ensure_bare_repo,
     log_headers,
+    repo_meta::RepositoryMetadataManager,
     sec::seccomp::setup_seccomp,
 };
 use axum::{
@@ -39,12 +40,8 @@ pub async fn handler(
     debug!(%addr, "connected");
     // 0. Проверка аутентификации
     let users_dir = get_users_dir();
-    let Some(user) = User::load(&auth.username, &users_dir) else {
-        warn!("Auth failed: user '{}' not found", auth.username);
-        return unauthorized_response();
-    };
-
-    if !User::verify_password(Some(&user), &auth.password) {
+    let user_opt = User::load(&auth.username, &users_dir);
+    if !User::verify_password(user_opt.as_ref(), &auth.password) {
         warn!("Auth failed: invalid password for user '{}'", auth.username);
         return unauthorized_response();
     }
@@ -97,10 +94,36 @@ pub async fn handler(
             .into_response();
     }
     let owner = segments[0];
-    // Можно заодно сохранить имя репозитория: let repo_name = segments[1];
+    let repo_name = segments[1];
 
     // Логируем факт авторизованного обращения с операцией
     info!(%addr, user = %auth.username, %repo, %operation, "Request");
+
+    // Проверка доступа к репозиторию
+    let metadata_mgr = RepositoryMetadataManager::new(get_repos_base());
+    let can_read = match metadata_mgr.can_access(owner, repo_name, Some(&auth.username)) {
+        Ok(access) => access,
+        Err(e) => {
+            warn!("Error checking repo access: {}", e);
+            false
+        }
+    };
+
+    if !can_read {
+        warn!(
+            %addr,
+            user = %auth.username,
+            owner = %owner,
+            repo = %repo_name,
+            "Forbidden: no access to private repository"
+        );
+        return (
+            StatusCode::FORBIDDEN,
+            [(header::CONTENT_TYPE, "text/plain")],
+            "Access denied: this repository is private",
+        )
+            .into_response();
+    }
 
     // Проверка прав на запись
     if operation == "push" && auth.username != owner {
@@ -188,7 +211,7 @@ pub async fn handler(
                 return (
                     StatusCode::INTERNAL_SERVER_ERROR,
                     [(header::CONTENT_TYPE, "text/plain")],
-                    format!("Internal server error: {e}"),
+                    format!("Internal server error: {}", e),
                 )
                     .into_response();
             }
@@ -271,9 +294,10 @@ unsafe fn run_git_in_child(
             }
 
             // --- Место для seccomp / landlock ---
-            if setup_landlock(repo_path).is_err() {
-                unsafe { exit(3) }
-            }
+            match setup_landlock(repo_path) {
+                Ok(_) => {}
+                Err(_) => unsafe { exit(3) },
+            };
             setup_seccomp(gitseccomp::SYSCALLS);
 
             let git_path = CString::new("/usr/bin/git").unwrap();
@@ -344,7 +368,8 @@ unsafe fn run_git_in_child(
     if !exited_ok {
         let stderr_str = String::from_utf8_lossy(&stderr_data);
         return Err(io::Error::other(format!(
-            "git {service} failed with status {status}: {stderr_str}"
+            "git {} failed with status {}: {}",
+            service, status, stderr_str
         )));
     }
 
@@ -382,8 +407,7 @@ fn setup_landlock(repo_path: &str) -> Result<(), landlock::RulesetError> {
     }
 
     // Чтение и выполнение
-    let access_read = AccessFs::Execute | AccessFs::ReadFile;
-    let access_readwrite = AccessFs::ReadFile | AccessFs::WriteFile;
+    let access_rx = AccessFs::Execute | AccessFs::ReadFile;
     for path in &[
         "/usr/lib",
         "/usr/bin",
@@ -392,7 +416,7 @@ fn setup_landlock(repo_path: &str) -> Result<(), landlock::RulesetError> {
         "/usr/share/locale",
     ] {
         if let Ok(fd) = PathFd::new(path) {
-            created = created.add_rule(PathBeneath::new(fd, access_read))?;
+            created = created.add_rule(PathBeneath::new(fd, access_rx))?;
         }
     }
     // Доступ к конкретным конфигурационным файлам git (только чтение)
@@ -405,8 +429,9 @@ fn setup_landlock(repo_path: &str) -> Result<(), landlock::RulesetError> {
         }
     }
     // Чтение и запись для /dev/null
+    let access_rw = AccessFs::ReadFile | AccessFs::WriteFile;
     if let Ok(fd) = PathFd::new("/dev/null") {
-        created = created.add_rule(PathBeneath::new(fd, access_readwrite))?;
+        created = created.add_rule(PathBeneath::new(fd, access_rw))?;
     }
 
     let _status = created.restrict_self()?;
