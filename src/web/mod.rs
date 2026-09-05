@@ -45,14 +45,14 @@ pub enum HandlerError {
 impl IntoResponse for HandlerError {
     fn into_response(self) -> axum::response::Response {
         match self {
-            HandlerError::Unauthorized => unauthorized_response().into_response(),
-            HandlerError::BadRequest(msg) => (
+            Self::Unauthorized => unauthorized_response().into_response(),
+            Self::BadRequest(msg) => (
                 StatusCode::BAD_REQUEST,
                 [(header::CONTENT_TYPE, "text/plain")],
                 msg,
             )
                 .into_response(),
-            HandlerError::Forbidden(msg) => (
+            Self::Forbidden(msg) => (
                 StatusCode::FORBIDDEN,
                 [(header::CONTENT_TYPE, "text/plain")],
                 msg,
@@ -140,8 +140,7 @@ fn check_authorization(
     );
 
     let metadata_mgr = RepositoryMetadataManager::new(get_repos_base());
-    let can_read = match metadata_mgr.can_access(&ctx.owner, &ctx.repo_name, Some(&auth.username))
-    {
+    let can_read = match metadata_mgr.can_access(&ctx.owner, &ctx.repo_name, Some(&auth.username)) {
         Ok(access) => access,
         Err(e) => {
             warn!("Error checking repo access: {}", e);
@@ -178,7 +177,13 @@ fn check_authorization(
     Ok(())
 }
 
-fn log_request_details(req_type: &str, path: &str, params: &HashMap<String, String>, body: &Bytes, headers: &HeaderMap) {
+fn log_request_details(
+    req_type: &str,
+    path: &str,
+    params: &HashMap<String, String>,
+    body: &Bytes,
+    headers: &HeaderMap,
+) {
     debug!("📨 [{}] /{} | query: {:?}", req_type, path, params);
     log_headers(headers);
 
@@ -290,10 +295,10 @@ pub async fn handler(
 
     log_request_details(ctx.req_type, &path, &params, &body, &headers);
 
-    if ctx.req_type == "handshake" {
-        if let Some(response) = handshake(&params, &path) {
-            return Ok(response);
-        }
+    if ctx.req_type == "handshake"
+        && let Some(response) = handshake(&params, &path)
+    {
+        return Ok(response);
     }
 
     if ctx.req_type == "receive-pack" || ctx.req_type == "upload-pack" {
