@@ -28,31 +28,56 @@ use tracing::{debug, info, warn};
 
 const INVALID_REPO_PATH: &str = "Invalid repository path (expected owner/repo)";
 
-// -------------------- HTTP обработчик --------------------
-pub async fn handler(
-    ConnectInfo(addr): ConnectInfo<SocketAddr>,
-    auth: BasicAuth,
-    Path(path): Path<String>,
-    Query(params): Query<HashMap<String, String>>,
-    headers: HeaderMap,
-    body: Bytes,
-) -> impl IntoResponse {
-    debug!(%addr, "connected");
-    // 0. Проверка аутентификации
+struct RequestContext {
+    req_type: &'static str,
+    operation: &'static str,
+    owner: String,
+    repo_name: String,
+    repo: String,
+}
+
+pub enum HandlerError {
+    Unauthorized,
+    BadRequest(&'static str),
+    Forbidden(&'static str),
+}
+
+impl IntoResponse for HandlerError {
+    fn into_response(self) -> axum::response::Response {
+        match self {
+            HandlerError::Unauthorized => unauthorized_response().into_response(),
+            HandlerError::BadRequest(msg) => (
+                StatusCode::BAD_REQUEST,
+                [(header::CONTENT_TYPE, "text/plain")],
+                msg,
+            )
+                .into_response(),
+            HandlerError::Forbidden(msg) => (
+                StatusCode::FORBIDDEN,
+                [(header::CONTENT_TYPE, "text/plain")],
+                msg,
+            )
+                .into_response(),
+        }
+    }
+}
+
+fn verify_auth(auth: &BasicAuth) -> Result<(), HandlerError> {
     let users_dir = get_users_dir();
     let user_opt = User::load(&auth.username, &users_dir);
     if !User::verify_password(user_opt.as_ref(), &auth.password) {
         warn!("Auth failed: invalid password for user '{}'", auth.username);
-        return unauthorized_response();
+        return Err(HandlerError::Unauthorized);
     }
+    Ok(())
+}
 
-    // Очищенный путь репозитория (без git-суффиксов)
+fn parse_request(path: &str, params: &HashMap<String, String>) -> RequestContext {
     let repo = path
         .trim_end_matches("/info/refs")
         .trim_end_matches("/git-receive-pack")
         .trim_end_matches("/git-upload-pack");
 
-    // Тип запроса
     let req_type = if path.ends_with("/info/refs") {
         "handshake"
     } else if path.ends_with("/git-receive-pack") {
@@ -63,8 +88,6 @@ pub async fn handler(
         "other"
     };
 
-    // --- Новый блок: проверка формата, операция и логирование ---
-    // Определяем операцию (push / fetch)
     let operation = match req_type {
         "receive-pack" => "push",
         "upload-pack" => "fetch",
@@ -76,32 +99,49 @@ pub async fn handler(
         _ => "unknown",
     };
 
-    // Проверка формата пути: должно быть ровно два сегмента (owner/repo)
     let segments: Vec<&str> = repo.split('/').collect();
-    if segments.len() != 2 {
+    let (owner, repo_name) = if segments.len() == 2 {
+        (segments[0].to_string(), segments[1].to_string())
+    } else {
+        (String::new(), String::new())
+    };
+
+    RequestContext {
+        req_type,
+        operation,
+        owner,
+        repo_name,
+        repo: repo.to_string(),
+    }
+}
+
+fn check_authorization(
+    addr: &SocketAddr,
+    auth: &BasicAuth,
+    ctx: &RequestContext,
+) -> Result<(), HandlerError> {
+    if ctx.owner.is_empty() || ctx.repo_name.is_empty() {
         warn!(
             %addr,
             user = %auth.username,
-            %repo,
-            %operation,
+            repo = %ctx.repo,
+            operation = %ctx.operation,
             INVALID_REPO_PATH
         );
-        return (
-            StatusCode::BAD_REQUEST,
-            [(header::CONTENT_TYPE, "text/plain")],
-            INVALID_REPO_PATH,
-        )
-            .into_response();
+        return Err(HandlerError::BadRequest(INVALID_REPO_PATH));
     }
-    let owner = segments[0];
-    let repo_name = segments[1];
 
-    // Логируем факт авторизованного обращения с операцией
-    info!(%addr, user = %auth.username, %repo, %operation, "Request");
+    info!(
+        %addr,
+        user = %auth.username,
+        repo = %ctx.repo,
+        operation = %ctx.operation,
+        "Request"
+    );
 
-    // Проверка доступа к репозиторию
     let metadata_mgr = RepositoryMetadataManager::new(get_repos_base());
-    let can_read = match metadata_mgr.can_access(owner, repo_name, Some(&auth.username)) {
+    let can_read = match metadata_mgr.can_access(&ctx.owner, &ctx.repo_name, Some(&auth.username))
+    {
         Ok(access) => access,
         Err(e) => {
             warn!("Error checking repo access: {}", e);
@@ -113,38 +153,34 @@ pub async fn handler(
         warn!(
             %addr,
             user = %auth.username,
-            owner = %owner,
-            repo = %repo_name,
+            owner = %ctx.owner,
+            repo = %ctx.repo_name,
             "Forbidden: no access to private repository"
         );
-        return (
-            StatusCode::FORBIDDEN,
-            [(header::CONTENT_TYPE, "text/plain")],
+        return Err(HandlerError::Forbidden(
             "Access denied: this repository is private",
-        )
-            .into_response();
+        ));
     }
 
-    // Проверка прав на запись
-    if operation == "push" && auth.username != owner {
+    if ctx.operation == "push" && auth.username != ctx.owner {
         warn!(
             %addr,
             user = %auth.username,
-            owner = %owner,
-            %repo,
+            owner = %ctx.owner,
+            repo = %ctx.repo,
             "Forbidden: push access denied"
         );
-        return (
-            StatusCode::FORBIDDEN,
-            [(header::CONTENT_TYPE, "text/plain")],
+        return Err(HandlerError::Forbidden(
             "Push access denied: you are not the repository owner",
-        )
-            .into_response();
+        ));
     }
-    // --- Конец нового блока ---
 
+    Ok(())
+}
+
+fn log_request_details(req_type: &str, path: &str, params: &HashMap<String, String>, body: &Bytes, headers: &HeaderMap) {
     debug!("📨 [{}] /{} | query: {:?}", req_type, path, params);
-    log_headers(&headers);
+    log_headers(headers);
 
     if !body.is_empty() {
         let preview_len = body.len().min(200);
@@ -155,104 +191,123 @@ pub async fn handler(
             debug!("   Text: {:?}", text);
         }
     }
+}
 
-    // 1. Handshake (GET /info/refs)
-    if req_type == "handshake"
-        && let Some(response) = handshake(&params, &path)
-    {
-        return response;
+async fn handle_git_pack(
+    service: &str,
+    _path: &str,
+    repo_path: &str,
+    body: Bytes,
+    req_type: &str,
+) -> axum::response::Response {
+    let full_repo_path = get_repos_base().join(repo_path);
+
+    if service == "receive-pack" {
+        ensure_bare_repo(&full_repo_path);
+    } else if !full_repo_path.is_dir() {
+        warn!("upload-pack requested for nonexistent repo: {}", repo_path);
+        return (
+            StatusCode::NOT_FOUND,
+            [(header::CONTENT_TYPE, "text/plain")],
+            "Repository not found",
+        )
+            .into_response();
     }
 
-    // 2. POST receive-pack / upload-pack
-    if req_type == "receive-pack" || req_type == "upload-pack" {
-        let service = if req_type == "receive-pack" {
-            "receive-pack"
-        } else {
-            "upload-pack"
-        };
+    let service_owned = service.to_string();
+    let full_repo_path_str = full_repo_path.to_string_lossy().to_string();
+    let body_vec = body.to_vec();
 
-        let repo_path = if req_type == "receive-pack" {
+    let result = tokio::task::spawn_blocking(move || unsafe {
+        run_git_in_child(&service_owned, &full_repo_path_str, &body_vec)
+    })
+    .await
+    .expect("spawn_blocking panicked");
+
+    let (output_stdout, output_stderr) = match result {
+        Ok((stdout, stderr)) => (stdout, stderr),
+        Err(e) => {
+            warn!("Git {} failed: {}", service, e);
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                [(header::CONTENT_TYPE, "text/plain")],
+                format!("Internal server error: {e}"),
+            )
+                .into_response();
+        }
+    };
+
+    if !output_stderr.is_empty() {
+        warn!(
+            "Git {} stderr: {:?}",
+            service,
+            String::from_utf8_lossy(&output_stderr)
+        );
+    }
+
+    debug!("Git {} stdout len: {}", service, output_stdout.len());
+    if !output_stdout.is_empty() {
+        let preview = &output_stdout[..output_stdout.len().min(100)];
+        debug!("Git {} stdout preview: {:02x?}", service, preview);
+        if let Ok(text) = std::str::from_utf8(preview) {
+            debug!("Git {} stdout text: {:?}", service, text);
+        }
+    }
+
+    let content_type = if req_type == "receive-pack" {
+        "application/x-git-receive-pack-result"
+    } else {
+        "application/x-git-upload-pack-result"
+    };
+
+    (
+        StatusCode::OK,
+        [
+            (header::CONTENT_TYPE, content_type),
+            (header::CACHE_CONTROL, "no-cache"),
+        ],
+        output_stdout,
+    )
+        .into_response()
+}
+
+// -------------------- HTTP обработчик --------------------
+pub async fn handler(
+    ConnectInfo(addr): ConnectInfo<SocketAddr>,
+    auth: BasicAuth,
+    Path(path): Path<String>,
+    Query(params): Query<HashMap<String, String>>,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Result<impl IntoResponse, HandlerError> {
+    debug!(%addr, "connected");
+
+    verify_auth(&auth)?;
+
+    let ctx = parse_request(&path, &params);
+
+    check_authorization(&addr, &auth, &ctx)?;
+
+    log_request_details(ctx.req_type, &path, &params, &body, &headers);
+
+    if ctx.req_type == "handshake" {
+        if let Some(response) = handshake(&params, &path) {
+            return Ok(response);
+        }
+    }
+
+    if ctx.req_type == "receive-pack" || ctx.req_type == "upload-pack" {
+        let service = ctx.req_type;
+        let repo_path = if ctx.req_type == "receive-pack" {
             path.strip_suffix("/git-receive-pack").unwrap()
         } else {
             path.strip_suffix("/git-upload-pack").unwrap()
         };
 
-        let full_repo_path = get_repos_base().join(repo_path);
-
-        if service == "receive-pack" {
-            ensure_bare_repo(&full_repo_path);
-        } else if !full_repo_path.is_dir() {
-            warn!("upload-pack requested for nonexistent repo: {}", repo_path);
-            return (
-                StatusCode::NOT_FOUND,
-                [(header::CONTENT_TYPE, "text/plain")],
-                "Repository not found",
-            )
-                .into_response();
-        }
-
-        // Подготовка данных для spawn_blocking (перемещаем владение)
-        let service_owned = service.to_string();
-        let full_repo_path_str = full_repo_path.to_string_lossy().to_string();
-        let body_vec = body.to_vec();
-
-        // Запуск git в отдельном процессе через fork/exec с безопасностью
-        let result = tokio::task::spawn_blocking(move || unsafe {
-            run_git_in_child(&service_owned, &full_repo_path_str, &body_vec)
-        })
-        .await
-        .expect("spawn_blocking panicked"); // или более элегантная обработка
-
-        let (output_stdout, output_stderr) = match result {
-            Ok((stdout, stderr)) => (stdout, stderr),
-            Err(e) => {
-                // Ошибка при запуске git или ненулевой код возврата
-                warn!("Git {} failed: {}", service, e);
-                return (
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    [(header::CONTENT_TYPE, "text/plain")],
-                    format!("Internal server error: {e}"),
-                )
-                    .into_response();
-            }
-        };
-
-        // Логирование stderr (если не пустой)
-        if !output_stderr.is_empty() {
-            warn!(
-                "Git {} stderr: {:?}",
-                service,
-                String::from_utf8_lossy(&output_stderr)
-            );
-        }
-
-        // Отладочный вывод stdout (как было раньше)
-        debug!("Git {} stdout len: {}", service, output_stdout.len());
-        if !output_stdout.is_empty() {
-            let preview = &output_stdout[..output_stdout.len().min(100)];
-            debug!("Git {} stdout preview: {:02x?}", service, preview);
-            if let Ok(text) = std::str::from_utf8(preview) {
-                debug!("Git {} stdout text: {:?}", service, text);
-            }
-        }
-
-        let content_type = if req_type == "receive-pack" {
-            "application/x-git-receive-pack-result"
-        } else {
-            "application/x-git-upload-pack-result"
-        };
-
-        return (
-            StatusCode::OK,
-            [
-                (header::CONTENT_TYPE, content_type),
-                (header::CACHE_CONTROL, "no-cache"),
-            ],
-            output_stdout,
-        )
-            .into_response();
+        return Ok(handle_git_pack(service, &path, repo_path, body, ctx.req_type).await);
     }
-    (StatusCode::OK, "OK").into_response()
+
+    Ok((StatusCode::OK, "OK").into_response())
 }
 
 unsafe fn run_git_in_child(
