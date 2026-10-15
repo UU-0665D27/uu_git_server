@@ -1,0 +1,17 @@
+{% extends "gui/base.html" %}
+
+{% block content %}
+<nav>
+  <span>uu-git-server</span>
+</nav>
+
+<h2>Вход</h2>
+{% if let Some(err) = error %}
+  <p class="error">{{ err }}</p>
+{% endif %}
+<form class="login" method="post" action="/login">
+  <label>Логин <input type="text" name="username" required></label>
+  <label>Пароль <input type="password" name="password" required></label>
+  <button type="submit">Войти</button>
+</form>
+{% endblock %}

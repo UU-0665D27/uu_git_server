@@ -1,0 +1,63 @@
+{% extends "gui/base.html" %}
+
+{% block content %}
+<nav>
+  <span>uu-git-server</span>
+  <span>
+    {% if let Some(u) = user %}
+      {{ u }}
+      <form method="post" action="/logout" style="display:inline">
+        <button type="submit">Выйти</button>
+      </form>
+    {% else %}
+      <a href="/login">Войти</a>
+    {% endif %}
+  </span>
+</nav>
+
+{% if let Some(_) = user %}
+<h2>Мои репозитории</h2>
+{% if own_repos.is_empty() %}
+  <p>У вас пока нет репозиториев.</p>
+{% else %}
+  <ul class="repo-list">
+    {% for r in own_repos %}
+    <li>
+      <div class="repo-path">{{ r.path }} <span class="badge">RW</span></div>
+      <div class="clone-row">
+        <input type="text" readonly value="git clone {{ r.http_url }}">
+        <button type="button" onclick="copyClone(this)">Копировать</button>
+      </div>
+      <div class="clone-row">
+        <input type="text" readonly value="git clone {{ r.ssh_url }}">
+        <button type="button" onclick="copyClone(this)">Копировать</button>
+      </div>
+    </li>
+    {% endfor %}
+  </ul>
+{% endif %}
+{% endif %}
+
+<h2>
+{% if let Some(_) = user %}Доступные репозитории (только чтение){% else %}Публичные репозитории{% endif %}
+</h2>
+{% if other_repos.is_empty() %}
+  <p>Репозиториев нет.</p>
+{% else %}
+  <ul class="repo-list">
+    {% for r in other_repos %}
+    <li>
+      <div class="repo-path">{{ r.path }} <span class="badge">RO</span></div>
+      <div class="clone-row">
+        <input type="text" readonly value="git clone {{ r.http_url }}">
+        <button type="button" onclick="copyClone(this)">Копировать</button>
+      </div>
+      <div class="clone-row">
+        <input type="text" readonly value="git clone {{ r.ssh_url }}">
+        <button type="button" onclick="copyClone(this)">Копировать</button>
+      </div>
+    </li>
+    {% endfor %}
+  </ul>
+{% endif %}
+{% endblock %}
