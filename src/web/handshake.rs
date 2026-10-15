@@ -69,6 +69,8 @@ fn build_advertisement_body(repo: &gix::Repository, service_str: &str) -> Option
     let mut refs: Vec<_> = platform.all().ok()?.filter_map(Result::ok).collect();
     refs.sort_by(|a, b| a.name().as_bstr().cmp(b.name().as_bstr()));
 
+    let refs_len = refs.len();
+
     let mut writer = Writer::new(Vec::new());
 
     let service_line = format!("# service={service_str}\n");
@@ -81,25 +83,34 @@ fn build_advertisement_body(repo: &gix::Repository, service_str: &str) -> Option
         "report-status delete-refs side-band-64k quiet atomic push-options object-format=sha1 agent=gitoxide/0.89.0"
     };
 
-    let refs_len = refs.len();
-    let mut first = true;
+    // ИСПРАВЛЕНИЕ 1: используем if let как выражение для инициализации (clippy::useless_let_if_seq)
+    let mut first = if let Ok(head_id) = repo.head_id() {
+        // ИСПРАВЛЕНИЕ 2: инлайним переменные в format! (clippy::uninlined_format_args)
+        let line = format!("{head_id} HEAD\0{caps}\n");
+        writer.write_all(line.as_bytes()).ok()?;
+        false
+    } else {
+        true
+    };
 
     for named_ref in refs {
         let ref_name_owned = named_ref.name().as_bstr().to_owned();
+        let ref_name_lossy = String::from_utf8_lossy(&ref_name_owned);
+
+        if ref_name_lossy == "HEAD" {
+            continue;
+        }
 
         let target_id = named_ref.into_fully_peeled_id().map_or_else(
             |_| "0000000000000000000000000000000000000000".to_string(),
             |id| id.to_string(),
         );
 
-        let ref_name_lossy = String::from_utf8_lossy(&ref_name_owned);
-
-        // ИСПРАВЛЕНИЕ: используем пробел ' ' вместо табуляции '\t'
         let line = if first {
             first = false;
-            format!("{target_id} {ref_name_lossy}\0{caps}\n") // <-- Здесь был \t
+            format!("{target_id} {ref_name_lossy}\0{caps}\n")
         } else {
-            format!("{target_id} {ref_name_lossy}\n") // <-- И здесь был \t
+            format!("{target_id} {ref_name_lossy}\n")
         };
 
         writer.write_all(line.as_bytes()).ok()?;
@@ -107,6 +118,7 @@ fn build_advertisement_body(repo: &gix::Repository, service_str: &str) -> Option
 
     encode::flush_to_write(writer.inner_mut()).ok()?;
 
-    debug!("Included {} refs in advertisement", refs_len);
+    // ИСПРАВЛЕНИЕ 3: инлайним переменные в debug! макросе
+    debug!("Included HEAD + {refs_len} refs in advertisement");
     Some(writer.into_inner())
 }
